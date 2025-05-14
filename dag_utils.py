@@ -3,20 +3,25 @@ import matplotlib.pyplot as plt
 from concurrent.futures import ThreadPoolExecutor, wait
 from db_utils import fetch_answers, save_result
 
+from dask.distributed import Client, wait
+from concurrent.futures import as_completed
+import sqlite3
+import importlib
+
 def build_dag(modules):
-    """建構 DAG 並做排序"""
+    """建構 DAG 並做拓撲排序（支援 dict）"""
     dag = nx.DiGraph()
     answer_to_module = {}
 
-    for module in modules:
-        dag.add_node(module["id"])
+    for module_id, module in modules.items():
+        dag.add_node(module_id)
         for out in module["outputs"]:
-            answer_to_module[out] = module["id"]
+            answer_to_module[out] = module_id
 
-    for module in modules:
+    for module_id, module in modules.items():
         for req in module["requires"]:
             if req in answer_to_module:
-                dag.add_edge(answer_to_module[req], module["id"])
+                dag.add_edge(answer_to_module[req], module_id)
 
     return dag, list(nx.topological_sort(dag))
 
@@ -90,21 +95,31 @@ def run_module(module, inputs):
     print(f"模組 {module['id']} 完成，輸出: {result}")
     save_result(module["id"], result)
 
-def execute_modules(modules):
-    """根據 DAG 執行模組（支援平行）"""
-    module_map = {m["id"]: m for m in modules}
-    dag, _ = build_dag(modules)
-    completed = set()
-    pending = set(module_map.keys())
 
-    while pending:
-        ready = [mid for mid in pending if all(pred in completed for pred in dag.predecessors(mid))]
-        with ThreadPoolExecutor() as executor:
-            futures = []
-            for mid in ready:
-                module = module_map[mid]
-                inputs = fetch_answers(module["requires"])
-                futures.append(executor.submit(run_module, module, inputs))
-                completed.add(mid)
-            wait(futures)
-        pending -= set(ready)
+def execute_modules(modules: dict):
+    """依據模組依賴關係執行所有模組（簡化版本）"""
+    # 先用拓撲排序確定執行順序
+    dag, execution_order = build_dag(modules)
+    
+    print(f"執行順序: {execution_order}")
+    
+    # 依照順序執行每個模組
+    for module_id in execution_order:
+        module = modules[module_id]
+        
+        # 準備輸入數據
+        inputs = {}
+        
+        # 如果模組需要其他答案，從資料庫中獲取
+        if module["requires"]:
+            inputs = fetch_answers(module["requires"])
+        
+        # 執行模組
+        print(f"\n正在執行模組 {module['id']}...")
+        result = module["generator"](inputs)
+        
+        # 保存結果
+        save_result(module["id"], result)
+        print(f"模組 {module['id']} 執行完成")
+    
+    print("\n所有模組執行完畢！")

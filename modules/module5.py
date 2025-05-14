@@ -21,7 +21,7 @@ def module5_function(inputs):
         answer4 = abs(answer4)
 
     # 決定矩陣大小（受 answer1 和 answer4 影響）
-    base_size = 10000 + int((answer1 + answer4) % 50)  # 大約在 100~150 之間
+    base_size = 15000 + int((answer1 + answer4) % 50)  # 大約在 100~150 之間
     print(f"模擬矩陣大小為 {base_size} x {base_size}，開始乘法計算...")
 
     # 建立隨機矩陣
