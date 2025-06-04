@@ -1,3 +1,6 @@
+# ============================================
+# worker_server.py
+# ============================================
 from flask import Flask, request, jsonify
 from module_runner import run_module
 from db_utils import save_result
@@ -10,21 +13,27 @@ app = Flask(__name__)
 def compute():
     try:
         data = request.get_json()
-        module = data["module_name"]
-        inputs = data["input_data"]
+        if not data:
+            return jsonify({"status": "error", "message": "無效的 JSON 資料"}), 400
+            
+        module = data.get("module_name")
+        inputs = data.get("input_data", {})
         exec_id = data.get("execution_id", "unknown")
+        user_inputs = data.get("user_inputs", {})
 
-        print(f"[WORKER] 收到任務 {module} (執行 ID: {exec_id})，輸入：{inputs}")
+        print(f"[WORKER] 收到任務 {module} (執行 ID: {exec_id})")
+        print(f"[WORKER] 輸入：{inputs}")
+        print(f"[WORKER] 用戶輸入：{user_inputs}")
 
         if module == "module5_sub":
             # 執行子區塊計算
-            trace_val = compute_trace_block(inputs)  # 使用 Dask 模擬子計算
+            trace_val = compute_trace_block(inputs)
             submit_partial_trace(trace_val)
             print(f"[WORKER] 子區塊 trace={trace_val} 已提交")
             return jsonify({"status": "submitted trace", "trace": trace_val})
         else:
-            # ✅ 將 inputs 傳給 run_module 作為 user_inputs
-            result = run_module(module, inputs.copy(), user_inputs=inputs.copy())
+            # 確保資料型態正確並傳遞 user_inputs
+            result = run_module(module, inputs, user_inputs=user_inputs)
             save_result(module, result)
             store_result_from_worker(module, result)
             print(f"[WORKER] 模組 {module} 計算完成，結果：{result}")
@@ -32,6 +41,8 @@ def compute():
 
     except Exception as e:
         print(f"[WORKER] 錯誤：{e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -52,3 +63,4 @@ if __name__ == "__main__":
     import sys
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5001
     app.run(host="0.0.0.0", port=port)
+
