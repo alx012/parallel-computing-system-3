@@ -1,54 +1,72 @@
-# master.py
-from transport_utils import send_task_to_worker, receive_result
-from dag_utils import get_execution_order
-from modules_config import MODULES
-import json
+import uuid
+from transport_utils import send_task_to_worker, receive_result, get_available_worker
+from dag_utils import build_dag
+from modules_config import get_modules_config
+from db_utils import register_result_location, init_db
+from module5_dispatcher import generate_subtasks
+from module5_merge import reset_merge_state
 
-# 任務 DAG 與資料起始點
-dag = {
-    "module1": [],
-    "module2": ["module1"],
-    "module3": ["module1"],
-    "module4": ["module1"],
-    "module5_dispatcher": ["module2", "module3"],
-    "module6": ["module4"],
-    "module5_merge": ["module5_dispatcher"],
-    "module7": ["module6", "module5_merge"]
-}
-initial_inputs = {"module1": {"param_a": 123}}
+# 啟動時請使用者輸入數據
+def ask_user_inputs():
+    num1 = int(input("請輸入 num1："))
+    num2 = int(input("請輸入 num2："))
+    num3 = int(input("請輸入 num3："))
+    return {"num1": num1, "num2": num2, "num3": num3}
 
-# 多台 worker IP 對應
+# Worker Pool 註冊
 worker_pool = {
-    "worker1": "192.168.0.101",
-    "worker2": "192.168.0.102",
-    "worker3": "192.168.0.103",
+    "worker1": "http://localhost:5001",
+    "worker2": "http://localhost:5002",
+    "worker3": "http://localhost:5003",
+    "worker4": "http://localhost:5004",
+    "worker5": "http://localhost:5005"
 }
 
-def main():
-    execution_order = get_execution_order(dag)
-    results = {}
+def main(user_inputs):
+    init_db()
+    modules = get_modules_config(user_inputs)
+    dag, execution_order = build_dag(modules)
+    result_map = {}
 
     for module in execution_order:
-        inputs = {dep: results[dep] for dep in dag[module]} if module in initial_inputs else {}
-        if module in initial_inputs:
-            inputs = initial_inputs[module]
+        if module == "module1":
+            inputs = user_inputs
+        else:
+            inputs = {}
+            for dep in modules[module]["requires"]:
+                inputs.update(result_map[dep])
+
+        exec_id = str(uuid.uuid4())
 
         if module == "module5_dispatcher":
-            sub_tasks = MODULES[module](**inputs)  # 返回分割子任務清單
-            for i, task in enumerate(sub_tasks):
-                send_task_to_worker(worker_pool[f"worker{i+1}"], "module5_sub", task)
-            merged = receive_result("module5_merge")
-            results["module5_merge"] = merged
-        else:
-            # 單模組執行（派給某台）
-            worker_ip = select_worker_for(module)
-            send_task_to_worker(worker_ip, module, inputs)
-            result = receive_result(module)
-            results[module] = result
+            subtasks = generate_subtasks(inputs)
+            reset_merge_state(len(subtasks))
+            for idx, subtask in enumerate(subtasks):
+                worker = get_available_worker(worker_pool, idx)
+                send_task_to_worker(worker, {
+                    "module_name": "module5_sub",
+                    "input_data": subtask,
+                    "execution_id": f"{exec_id}_{idx}"
+                })
+            result = receive_result("module5_merge")
+            result_map["module5_merge"] = result
+            register_result_location("module5_merge", result, worker)
 
-def select_worker_for(module):
-    # 簡單策略：module 名稱對應 worker（可替換成 queue-based）
-    return worker_pool["worker1"]  # 暫定全派 worker1
+        elif module == "module5_merge":
+            continue
+
+        else:
+            worker = get_available_worker(worker_pool)
+            task_packet = {
+                "module_name": module,
+                "input_data": inputs,
+                "execution_id": exec_id
+            }
+            send_task_to_worker(worker, task_packet)
+            result = receive_result(module)
+            result_map[module] = result
+            register_result_location(module, result, worker)
 
 if __name__ == "__main__":
-    main()
+    user_inputs = ask_user_inputs()
+    main(user_inputs)

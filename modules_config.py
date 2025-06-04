@@ -1,3 +1,5 @@
+# modules_config.py
+
 # 從各模組文件導入模組計算函數
 from modules.module1 import module1_function
 from modules.module2 import module2_function
@@ -6,13 +8,6 @@ from modules.module4 import module4_function
 from modules.module5 import module5_function
 from modules.module6 import module6_function
 from modules.module7 import module7_function
-
-# 用戶輸入全局變數
-user_inputs = {
-    "num1": 0,
-    "num2": 0,
-    "num3": 0
-}
 
 # 創建一個包含所有模組配置的函數，接收用戶輸入
 def get_modules_config(user_inputs):
