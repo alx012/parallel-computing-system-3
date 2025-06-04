@@ -71,3 +71,50 @@
 	•	各台 worker 電腦負責模組實際運算，並使用本機 SQLite 儲存結果。
 	•	大型模組可切成子任務並平行分派、結果整合。
 	•	不依賴雲端資料庫，節省成本。
+
+
+⸻⸻⸻⸻
+
+目標架構流程（從 master 控制並透過本地 SQLite 執行計算）：
+	Master Node:
+  1. 建立 DAG 任務佇列
+  2. 負責初始輸入與任務分派
+  3. 發送資料與指令給 worker
+  4. 等待結果合併（例如模組5）
+
+Worker Node:
+  1. 接收任務與輸入資料
+  2. 執行指定模組計算
+  3. 將結果寫入本地 SQLite
+  4. 回傳必要資料給下一模組或 master
+
+專案架構新增/調整
+parallel-computing-system/
+│
+├── master.py                 # ✅ 新增：Master 控制器
+├── worker.py                 # ✅ 新增：Worker 計算節點程式
+├── module_runner.py          # ✅ 新增：統一模組執行函式
+├── transport_utils.py        # ✅ 新增：Socket/HTTP 傳輸工具
+│
+├── dag_utils.py              # ✏️ 更新：DAG 排程器（支援 master 分派）
+├── modules_config.py         # ✏️ 更新：模組函式總表
+├── db_utils.py               # ✏️ 更新：各地 SQLite 操作（讀/寫結果）
+│
+├── main_legacy.py            # （可選）原單機版主程式，備份保留
+│
+├── modules/
+│   ├── module1.py            # ✅ 保留
+│   ├── module2.py ...
+│   ├── module5_dispatcher.py # ✅ 新增
+│   ├── module5_merge.py      # ✅ 新增
+│   └── ... 其他模組 ...
+
+
+
+⸻⸻⸻⸻
+Socket vs Flask API vs gRPC 傳輸方式比較
+
+	•	初期開發（本機模擬多台） → 建議用 Flask API + JSON 傳輸（容易開發、測試、除錯）
+	•	未來正式部署多機並追求效能 → 考慮升級 gRPC + Protobuf
+
+	
